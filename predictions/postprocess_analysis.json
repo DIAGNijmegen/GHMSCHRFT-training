@@ -1,0 +1,1 @@
+{"case": {"Task302_anonymisation_ner_aug": {"Task302_anonymisation_ner_aug-fold0": 0.7533097785898902}}, "aggregates": {"Task302_anonymisation_ner_aug": {"mean": 0.7533097785898902, "std": 0.0}, "overall": {"mean": 0.7533097785898902, "std": 0.0}}, "version": "0.2.11"}

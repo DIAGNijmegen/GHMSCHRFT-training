@@ -1,0 +1,3 @@
+# Files containing medical text (text_parts from test records)
+cases_*.json
+eval_results_*.txt

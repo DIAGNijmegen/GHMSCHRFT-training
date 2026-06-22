@@ -1,0 +1,13 @@
+dragon_baseline==0.2.3
+dragon_eval==0.2.11
+dragon_prep==0.2.8
+fastapi==0.115.0
+uvicorn==0.30.6
+python-multipart==0.0.9
+dutch-med-hips>=1.0.1
+wandb
+
+transformers==4.35.0
+tokenizers==0.14.1
+huggingface_hub==0.17.3
+accelerate==0.27.2

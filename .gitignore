@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.env
+
+# Generated plot output
+evaluation/plots/output/
+
+# Model predictions and bootstrap results (large generated data files)
+evaluation/baselines/*/predictions.json
+predictions/baseline_results.json
+predictions/bootstrap_ci.json
+predictions/bootstrap_cis.json
+
+# Generated Doccano export and measurement-loss annotation data
+evaluation/measurement_loss/
