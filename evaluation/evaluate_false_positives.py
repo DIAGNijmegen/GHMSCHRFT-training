@@ -73,6 +73,16 @@ def main():
         help="Restrict to one subset (e.g. main, jbz, rumc_radiology). "
              "Default: main + jbz combined.",
     )
+    parser.add_argument(
+        "--no-examples", action="store_true",
+        help="Do not print the per-span listing of pure false positives. "
+             "That listing includes surrounding clinical text; with this "
+             "flag the output contains counts only and is safe to export.",
+    )
+    parser.add_argument(
+        "--save-json", type=Path, default=None,
+        help="Write the aggregate counts (no text) to this JSON file.",
+    )
     args = parser.parse_args()
 
     with open(args.cases_file, encoding="utf-8") as f:
@@ -199,18 +209,43 @@ def main():
             print(f"  {tag:<30} {fp_count:>8,}  {total_tag:>9,}  "
                   f"{pct(fp_count, total_tag):>7}")
 
-    # ── Per-span listing ─────────────────────────────────────────────────────────
-    if pure_fp_list:
-        print()
-        print(f"  All pure FP spans ({len(pure_fp_list)}):")
-        print(f"  {'-' * 80}")
-        pure_fp_list.sort(key=lambda x: (x["tag"], x["text"].lower()))
-        for fp in pure_fp_list:
-            header = f"  [{fp['tag']}]  {fp['subset']} / {fp['uid']}"
-            context = f"  ...{fp['before']} [{fp['text']}] {fp['after']}..."
-            print(header)
-            print(context)
+    if args.save_json:
+        args.save_json.parent.mkdir(parents=True, exist_ok=True)
+        with open(args.save_json, "w", encoding="utf-8") as jf:
+            json.dump({
+                "totals": {
+                    "cases": total_cases, "tokens": total_tokens,
+                    "pred_spans": total_pred_spans,
+                    "exact": n_exact, "overlap": n_overlap,
+                    "pure_fp": n_none,
+                    "pure_fp_tokens": total_pure_fp_tokens,
+                },
+                "by_subset": {
+                    k: {
+                        "cases": v["cases"], "tokens": v["tokens"],
+                        "pred_spans": v["pred_spans"],
+                        "pure_fp_tokens": v["pure_fp_tokens"],
+                        "counts": dict(v["counts"]),
+                    }
+                    for k, v in by_subset.items()
+                },
+                "by_tag": {t: dict(c) for t, c in by_tag.items()},
+            }, jf, indent=2)
+        print(f"\n  Saved -> {args.save_json}")
+
+    if not args.no_examples:
+        # ── Per-span listing ─────────────────────────────────────────────────────────
+        if pure_fp_list:
             print()
+            print(f"  All pure FP spans ({len(pure_fp_list)}):")
+            print(f"  {'-' * 80}")
+            pure_fp_list.sort(key=lambda x: (x["tag"], x["text"].lower()))
+            for fp in pure_fp_list:
+                header = f"  [{fp['tag']}]  {fp['subset']} / {fp['uid']}"
+                context = f"  ...{fp['before']} [{fp['text']}] {fp['after']}..."
+                print(header)
+                print(context)
+                print()
 
 
 if __name__ == "__main__":

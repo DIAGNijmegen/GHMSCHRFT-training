@@ -38,6 +38,12 @@ Usage:
         --rra-predictions evaluation/baselines/rra/predictions.json \\
         --nemotron-predictions evaluation/baselines/nemotron/predictions.json
 
+    # Include deidentify (Trienes et al. 2020), see baselines/deidentify/
+    python evaluation/baselines/evaluate_baselines.py \\
+        --cases-file predictions/cases_GHMSCHRFT-v1.json \\
+        --deduce-predictions evaluation/baselines/deduce/predictions.json \\
+        --deidentify-predictions evaluation/baselines/deidentify/predictions.json
+
     # Only one subset
     python evaluation/baselines/evaluate_baselines.py \\
         --cases-file predictions/cases_GHMSCHRFT-v1.json \\
@@ -266,6 +272,12 @@ def main():
         help="Nemotron predictions JSON saved by nemotron/run_nemotron.py",
     )
     parser.add_argument(
+        "--deidentify-predictions",
+        type=Path,
+        default=None,
+        help="deidentify predictions JSON saved by deidentify/run_deidentify.py",
+    )
+    parser.add_argument(
         "--subset",
         type=str,
         default=None,
@@ -316,6 +328,14 @@ def main():
         else:
             print(f"Nemotron predictions not found at {args.nemotron_predictions}")
             print("Run: python evaluation/baselines/nemotron/run_nemotron.py")
+
+    if args.deidentify_predictions is not None:
+        if args.deidentify_predictions.exists():
+            baseline_preds["deidentify"] = load_predictions(args.deidentify_predictions, "deidentify_labels")
+            print(f"Loaded {len(baseline_preds['deidentify'])} deidentify predictions")
+        else:
+            print(f"deidentify predictions not found at {args.deidentify_predictions}")
+            print("Run: conda activate deidentify && python evaluation/baselines/deidentify/run_deidentify.py")
 
     if not baseline_preds:
         print("No baseline predictions loaded, exiting.")

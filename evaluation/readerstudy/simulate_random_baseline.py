@@ -149,6 +149,11 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--n-simulations", type=int, default=N_SIMULATIONS)
     parser.add_argument("--seed", type=int, default=RNG_SEED)
+    parser.add_argument(
+        "--no-exclusions", action="store_true",
+        help="Sensitivity analysis: use ALL error cases and all gold "
+             "spans, matching evaluate_readers.py --no-exclusions.",
+    )
     args = parser.parse_args()
 
     truth_file  = args.output_dir / "reader_cases.jsonl"
@@ -164,22 +169,25 @@ def main():
     errors_by_idx = load_jsonl(errors_file)
     hips_by_idx   = load_jsonl(hips_file)
 
-    # Apply same exclusions as evaluate_readers.py
-    for idx in EXCLUDED_CASES:
-        if idx in truth_by_idx:
-            truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
-        if idx in errors_by_idx:
-            errors_by_idx[idx] = {**errors_by_idx[idx], "has_error": False, "label": []}
-    for idx, spans_to_drop in EXCLUDED_SPANS.items():
-        if idx not in errors_by_idx:
-            continue
-        drop_set = set(map(tuple, spans_to_drop))
-        rec = errors_by_idx[idx]
-        filtered = [lbl for lbl in rec["label"] if (lbl[0], lbl[1]) not in drop_set]
-        has_error = any(lbl[2] == "GOLD" for lbl in filtered)
-        errors_by_idx[idx] = {**rec, "label": filtered, "has_error": has_error}
-        if idx in truth_by_idx and not has_error:
-            truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
+    if args.no_exclusions:
+        print("SENSITIVITY ANALYSIS: no case or span exclusions applied.")
+    else:
+        # Apply same exclusions as evaluate_readers.py
+        for idx in EXCLUDED_CASES:
+            if idx in truth_by_idx:
+                truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
+            if idx in errors_by_idx:
+                errors_by_idx[idx] = {**errors_by_idx[idx], "has_error": False, "label": []}
+        for idx, spans_to_drop in EXCLUDED_SPANS.items():
+            if idx not in errors_by_idx:
+                continue
+            drop_set = set(map(tuple, spans_to_drop))
+            rec = errors_by_idx[idx]
+            filtered = [lbl for lbl in rec["label"] if (lbl[0], lbl[1]) not in drop_set]
+            has_error = any(lbl[2] == "GOLD" for lbl in filtered)
+            errors_by_idx[idx] = {**rec, "label": filtered, "has_error": has_error}
+            if idx in truth_by_idx and not has_error:
+                truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
 
     # S_d: predicted spans per case (from model NER output in reader_cases.jsonl)
     S_per_case = {

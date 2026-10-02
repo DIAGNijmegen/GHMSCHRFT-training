@@ -498,22 +498,42 @@ def evaluate_jbz(jbz_path: Path, predictions_path: Path, task_name: str):
 
     gt_dict = {item["uid"]: item["named_entity_recognition_target"] for item in gt_records}
 
-    # Load predictions from Docker output (character-offset format)
-    pred_file = predictions_path / "reports_orig_with_phi_predictions.jsonl"
-    if not pred_file.exists():
-        print(f"\nJBZ predictions not found at: {pred_file}")
+    # Load predictions. Two formats are accepted:
+    #   1. reports_orig_with_phi_predictions.jsonl -- doccano character offsets,
+    #      written by the deployment container (process.py)
+    #   2. nlp-predictions-dataset.json -- DragonBaseline format, written by the
+    #      same predict step used for the internal test set
+    docker_file = predictions_path / "reports_orig_with_phi_predictions.jsonl"
+    dragon_file = predictions_path / "nlp-predictions-dataset.json"
+
+    if docker_file.exists():
+        pred_items = []
+        with open(docker_file, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    pred_items.append(json.loads(line))
+        # Convert character-offset predictions to BIO format
+        pred_bio = doccano_to_bio_tags(pred_items)
+        pred_dict = {item["uid"]: list(item["labels"]) for item in pred_bio}
+        print(f"\nJBZ predictions: {docker_file.name} ({len(pred_dict)} records)")
+    elif dragon_file.exists():
+        with open(dragon_file, encoding="utf-8") as f:
+            pred_records = json.load(f)
+        _key = "named_entity_recognition"
+        pred_dict = {
+            item["uid"]: list(item[_key])
+            for item in pred_records
+            if _key in item
+        }
+        print(f"\nJBZ predictions: {dragon_file.name} ({len(pred_dict)} records)")
+        if not pred_dict:
+            print(f"  WARNING: no '{_key}' field found in {dragon_file}")
+    else:
+        print("\nJBZ predictions not found. Looked for:")
+        print(f"  {docker_file}")
+        print(f"  {dragon_file}")
         print("Run inference on the JBZ test set first.")
         return
-
-    pred_items = []
-    with open(pred_file, encoding="utf-8") as f:
-        for line in f:
-            if line.strip():
-                pred_items.append(json.loads(line))
-
-    # Convert character-offset predictions to BIO format
-    pred_bio = doccano_to_bio_tags(pred_items)
-    pred_dict = {item["uid"]: list(item["labels"]) for item in pred_bio}
 
     common_uids = sorted(set(gt_dict.keys()) & set(pred_dict.keys()))
     if not common_uids:

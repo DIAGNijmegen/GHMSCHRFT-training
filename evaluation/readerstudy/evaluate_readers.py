@@ -29,72 +29,90 @@ from pathlib import Path
 OUTPUT_DIR = Path("evaluation/readerstudy/output")
 
 
+def _betacf(a: float, b: float, x: float,
+            itmax: int = 400, eps: float = 3e-16, fpmin: float = 1e-300) -> float:
+    """Continued fraction for the incomplete beta function (Lentz's method)."""
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fpmin:
+        d = fpmin
+    d = 1.0 / d
+    h = d
+    for m in range(1, itmax + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < eps:
+            break
+    return h
+
+
+def regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    """I_x(a, b), evaluated without recursion."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    if x < (a + 1.0) / (a + b + 2.0):
+        front = math.exp(a * math.log(x) + b * math.log1p(-x) - lbeta)
+        return front * _betacf(a, b, x) / a
+    front = math.exp(b * math.log1p(-x) + a * math.log(x) - lbeta)
+    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
+
+
+def _beta_ppf(p: float, a: float, b: float, iterations: int = 200) -> float:
+    """Inverse of I_x(a, b) by bisection. Monotone, so convergence is guaranteed."""
+    if p <= 0.0:
+        return 0.0
+    if p >= 1.0:
+        return 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(iterations):
+        mid = 0.5 * (lo + hi)
+        if regularized_incomplete_beta(a, b, mid) < p:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
 def clopper_pearson_ci(k: int, n: int, alpha: float = 0.05):
-    """Exact Clopper-Pearson binomial confidence interval for k successes in n trials."""
-    if n == 0:
+    """
+    Exact Clopper-Pearson binomial confidence interval for k successes in n trials.
+
+    Replaced during the IJMI revision: the previous Newton-based implementation
+    returned out-of-range bounds for k near 0 or near n with large n, and
+    recursed infinitely for n = 1. This version evaluates the regularized
+    incomplete beta with a non-recursive continued fraction and inverts it by
+    bisection.
+    """
+    if n <= 0:
         return float("nan"), float("nan")
-
-    def ibeta_inv(p, a, b, tol=1e-10):
-        """Regularized incomplete beta inverse via Newton's method."""
-        if p <= 0:
-            return 0.0
-        if p >= 1:
-            return 1.0
-        x = a / (a + b)
-        for _ in range(200):
-            # Regularized incomplete beta via continued fraction (Lentz)
-            def ibeta(x, a, b):
-                if x <= 0:
-                    return 0.0
-                if x >= 1:
-                    return 1.0
-                lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-                front = math.exp(a * math.log(x) + b * math.log(1 - x) - lbeta) / a
-                qab, qap, qam = a + b, a + 1, a - 1
-                c, d = 1.0, 1.0 - qab * x / qap
-                if abs(d) < 1e-30:
-                    d = 1e-30
-                d, h = 1.0 / d, 1.0 / d
-                for m in range(1, 201):
-                    m2 = 2 * m
-                    aa = m * (b - m) * x / ((qam + m2) * (a + m2))
-                    d = 1.0 + aa * d
-                    if abs(d) < 1e-30:
-                        d = 1e-30
-                    c = 1.0 + aa / c
-                    if abs(c) < 1e-30:
-                        c = 1e-30
-                    d = 1.0 / d
-                    h *= d * c
-                    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
-                    d = 1.0 + aa * d
-                    if abs(d) < 1e-30:
-                        d = 1e-30
-                    c = 1.0 + aa / c
-                    if abs(c) < 1e-30:
-                        c = 1e-30
-                    d = 1.0 / d
-                    delta = d * c
-                    h *= delta
-                    if abs(delta - 1.0) < 1e-12:
-                        break
-                if x < (a + 1) / (a + b + 2):
-                    return front * h
-                return 1.0 - ibeta(1 - x, b, a)
-
-            fx = ibeta(x, a, b) - p
-            lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-            dfx = math.exp((a - 1) * math.log(max(x, 1e-15)) +
-                           (b - 1) * math.log(max(1 - x, 1e-15)) - lbeta)
-            if dfx == 0:
-                break
-            x = max(1e-15, min(1 - 1e-15, x - fx / dfx))
-            if abs(fx) < tol:
-                break
-        return x
-
-    lo = ibeta_inv(alpha / 2, k, n - k + 1) if k > 0 else 0.0
-    hi = ibeta_inv(1 - alpha / 2, k + 1, n - k) if k < n else 1.0
+    k = int(k)
+    n = int(n)
+    if k < 0 or k > n:
+        return float("nan"), float("nan")
+    lo = 0.0 if k == 0 else _beta_ppf(alpha / 2.0, k, n - k + 1)
+    hi = 1.0 if k == n else _beta_ppf(1.0 - alpha / 2.0, k + 1, n - k)
     return lo, hi
 
 # Cases excluded from evaluation because the leaked PHI is not realistically
@@ -512,6 +530,17 @@ def main():
         default=OUTPUT_DIR / "reader_results",
         help="Where to save per-reader JSON results",
     )
+    parser.add_argument(
+        "--no-exclusions", action="store_true",
+        help="Sensitivity analysis: evaluate against ALL error cases and "
+             "all gold spans, ignoring EXCLUDED_CASES and EXCLUDED_SPANS.",
+    )
+    parser.add_argument(
+        "--no-spans", action="store_true",
+        help="Do not print the found/missed PHI spans or false-alarm "
+             "annotations. The remaining console output contains counts "
+             "only and is safe to export from the secure environment.",
+    )
     args = parser.parse_args()
 
     truth_file  = args.output_dir / "reader_cases.jsonl"
@@ -527,26 +556,30 @@ def main():
     errors_by_idx = load_jsonl(errors_file)
     hips_by_idx   = load_jsonl(hips_file)
 
-    # Apply exclusions: treat excluded cases as having no error
-    for idx in EXCLUDED_CASES:
-        if idx in truth_by_idx:
-            truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
-        if idx in errors_by_idx:
-            errors_by_idx[idx] = {**errors_by_idx[idx], "has_error": False, "label": []}
-    print(f"Excluding {len(EXCLUDED_CASES)} cases (treated as no error): {sorted(EXCLUDED_CASES)}")
+    if args.no_exclusions:
+        print("SENSITIVITY ANALYSIS: no case or span exclusions applied "
+              "(all error cases and all gold spans are evaluable).")
+    else:
+        # Apply exclusions: treat excluded cases as having no error
+        for idx in EXCLUDED_CASES:
+            if idx in truth_by_idx:
+                truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
+            if idx in errors_by_idx:
+                errors_by_idx[idx] = {**errors_by_idx[idx], "has_error": False, "label": []}
+        print(f"Excluding {len(EXCLUDED_CASES)} cases (treated as no error): {sorted(EXCLUDED_CASES)}")
 
-    # Apply span-level exclusions within cases that still have other valid errors
-    for idx, spans_to_drop in EXCLUDED_SPANS.items():
-        if idx not in errors_by_idx:
-            continue
-        drop_set = set(map(tuple, spans_to_drop))
-        rec = errors_by_idx[idx]
-        filtered = [lbl for lbl in rec["label"] if (lbl[0], lbl[1]) not in drop_set]
-        has_error = any(lbl[2] == "GOLD" for lbl in filtered)
-        errors_by_idx[idx] = {**rec, "label": filtered, "has_error": has_error}
-        if idx in truth_by_idx and not has_error:
-            truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
-    print(f"Excluding individual spans in cases: {sorted(EXCLUDED_SPANS)}")
+        # Apply span-level exclusions within cases that still have other valid errors
+        for idx, spans_to_drop in EXCLUDED_SPANS.items():
+            if idx not in errors_by_idx:
+                continue
+            drop_set = set(map(tuple, spans_to_drop))
+            rec = errors_by_idx[idx]
+            filtered = [lbl for lbl in rec["label"] if (lbl[0], lbl[1]) not in drop_set]
+            has_error = any(lbl[2] == "GOLD" for lbl in filtered)
+            errors_by_idx[idx] = {**rec, "label": filtered, "has_error": has_error}
+            if idx in truth_by_idx and not has_error:
+                truth_by_idx[idx] = {**truth_by_idx[idx], "has_error": False}
+        print(f"Excluding individual spans in cases: {sorted(EXCLUDED_SPANS)}")
 
     print(f"Ground truth: {len(truth_by_idx)} cases "
           f"({sum(1 for t in truth_by_idx.values() if t['has_error'])} errors, "
@@ -575,7 +608,8 @@ def main():
         print(f"Saved results -> {out_path}")
 
         interpret(report)
-        print_spans(report, reader_by_idx, errors_by_idx, hips_by_idx)
+        if not args.no_spans:
+            print_spans(report, reader_by_idx, errors_by_idx, hips_by_idx)
 
 
 if __name__ == "__main__":

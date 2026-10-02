@@ -365,19 +365,39 @@ def main():
 
     rng = random.Random(args.seed)
 
-    baselines = {
-        "DEDUCE":                load_baseline_preds("deduce", "deduce_labels"),
-        "RRA":                   load_baseline_preds("rra", "rra_labels"),
-        "OpenAI Privacy Filter": load_baseline_preds("privacy_filter", "privacy_filter_labels"),
-    }
-    nemotron_path = BASELINE_DIR / "nemotron" / "predictions.json"
-    if nemotron_path.exists():
-        baselines["Nemotron Privacy Filter"] = load_baseline_preds("nemotron", "nemotron_labels")
+    def _load_optional(display_name, tool, label_key):
+        path = BASELINE_DIR / tool / "predictions.json"
+        if not path.exists():
+            print(f"  baseline predictions missing, skipping {display_name}: {path}")
+            return None
+        return load_baseline_preds(tool, label_key)
 
-    for split_label, cases in [
-        ("Internal test set (RUMC + ZGT)", data["main"]),
-        ("External test set (JBZ)",        data["jbz"]),
+    baselines = {}
+    for _name, _tool, _key in [
+        ("DEDUCE",                  "deduce",         "deduce_labels"),
+        ("RRA",                     "rra",            "rra_labels"),
+        ("OpenAI Privacy Filter",   "privacy_filter", "privacy_filter_labels"),
+        ("Nemotron Privacy Filter", "nemotron",       "nemotron_labels"),
     ]:
+        _preds = _load_optional(_name, _tool, _key)
+        if _preds is not None:
+            baselines[_name] = _preds
+
+    if not baselines:
+        print("  NOTE: no baseline predictions found. GHMSCHRFT metrics and "
+              "compiled-category\n        detection recall are still computed; "
+              "the baseline comparison is not.")
+
+    _SPLIT_KEYS = [
+        ("Internal test set (RUMC + ZGT)", "main"),
+        ("External test set (JBZ)",        "jbz"),
+    ]
+    for split_label, _split_key in _SPLIT_KEYS:
+        if _split_key not in data:
+            print(f"\nSubset {_split_key!r} not present in the predictions "
+                  f"file -- skipping {split_label}.")
+            continue
+        cases = data[_split_key]
         print_ghmschrft(split_label, cases, args.n_iterations, rng)
 
         print(f"\n  Detection recall (compiled categories) — {split_label}")
@@ -414,6 +434,17 @@ def main():
             include_pc = subset_key in ("main", "jbz")
             ci_data[subset_key] = compute_subset_cis(
                 cases_s, joined_s, args.n_iterations, rng_ci, include_per_cat=include_pc
+            )
+        # The manuscript reports RUMC radiology as one dataset of 542 reports,
+        # which the cases file holds as two subsets (rumc_radiology, 238 reports,
+        # and rumc_radiology_old, 304). Combined here with its own random stream,
+        # after the loop, so that every interval above stays exactly as before.
+        if "rumc_radiology" in data and "rumc_radiology_old" in data:
+            cases_r = data["rumc_radiology"] + data["rumc_radiology_old"]
+            joined_r = {name: join_with_baseline(cases_r, preds) for name, preds in baselines.items()}
+            ci_data["rumc_radiology_all"] = compute_subset_cis(
+                cases_r, joined_r, args.n_iterations,
+                random.Random(f"{args.seed}-rumc_radiology_all"), include_per_cat=False
             )
         args.save_ci.parent.mkdir(parents=True, exist_ok=True)
         with open(args.save_ci, "w") as f:

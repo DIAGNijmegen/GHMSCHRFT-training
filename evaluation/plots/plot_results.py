@@ -25,10 +25,11 @@ import numpy as np
 # Style
 # ---------------------------------------------------------------------------
 
-SYSTEM_ORDER  = ["GHMSCHRFT", "deduce", "rra", "privacy_filter"]
+SYSTEM_ORDER  = ["GHMSCHRFT", "deduce", "deidentify", "rra", "privacy_filter"]
 SYSTEM_LABELS = {
     "GHMSCHRFT":      "GHMSCHRFT",
-    "deduce":         "Deduce v3",
+    "deduce":         "DEDUCE v3",
+    "deidentify":     "deidentify",
     "rra":            "RRA v2",
     "privacy_filter": "OpenAI Privacy Filter",
 }
@@ -37,6 +38,7 @@ SYSTEM_LABELS = {
 SYSTEM_COLORS = {
     "GHMSCHRFT":      "#0072B2",   # blue
     "deduce":         "#E69F00",   # orange/amber
+    "deidentify":     "#8C8C8C",   # mid gray
     "rra":            "#009E73",   # green
     "privacy_filter": "#CC79A7",   # pink
 }
@@ -54,9 +56,14 @@ CATEGORY_LABELS = {
 # Subset used for the category panel (covers all four hospitals combined)
 CATEGORY_SUBSET = "main"
 
-# Subsets for the dataset panel (in display order)
-DATASET_ORDER = ["rumc_radiology", "rumc_pathology", "zgt", "jbz"]
+# Subsets for the dataset panel (in display order).
+# RUMC radiology is one dataset of 542 reports in the manuscript, but the cases
+# file holds it as two subsets, rumc_radiology (238) and rumc_radiology_old
+# (304). Earlier versions of this figure plotted rumc_radiology alone, which
+# did not match Supplementary Table S10. merge_radiology() combines the two.
+DATASET_ORDER = ["rumc_radiology_all", "rumc_pathology", "zgt", "jbz"]
 DATASET_LABELS = {
+    "rumc_radiology_all": "RUMC Radiology",
     "rumc_radiology": "RUMC Radiology",
     "rumc_pathology": "RUMC Pathology",
     "zgt":            "ZGT",
@@ -81,9 +88,42 @@ plt.rcParams.update({
 })
 
 
+# GHMSCHRFT on JBZ: the manuscript reports the originally submitted external
+# results (Table 2B: compiled-category detection recall 0.986, 95% CI 0.98 to
+# 0.99). The JBZ predictions in the current cases file come from a later
+# re-run that was not adopted, so by default the JBZ GHMSCHRFT bar is pinned to
+# the published value. Baselines on JBZ are unaffected. --no-pin-jbz disables.
+PUBLISHED_PINS = {
+    ("jbz", "GHMSCHRFT"): {"recall": 0.986, "ci95": [0.98, 0.99]},
+}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def merge_radiology(results: dict) -> dict:
+    """Add rumc_radiology_all = rumc_radiology + rumc_radiology_old (counts summed)."""
+    if "rumc_radiology_all" in results:
+        return results
+    parts = [results[k] for k in ("rumc_radiology", "rumc_radiology_old") if k in results]
+    if len(parts) != 2:
+        print("WARNING: rumc_radiology_old not in results; the RUMC Radiology bar "
+              "will cover only part of the radiology test set.")
+        if "rumc_radiology" in results:
+            results["rumc_radiology_all"] = results["rumc_radiology"]
+        return results
+    merged = {}
+    for sys_name in set(parts[0]) & set(parts[1]):
+        merged[sys_name] = {}
+        for group in set(parts[0][sys_name]) | set(parts[1][sys_name]):
+            a = parts[0][sys_name].get(group, {"total": 0, "detected": 0})
+            b = parts[1][sys_name].get(group, {"total": 0, "detected": 0})
+            merged[sys_name][group] = {"total": a["total"] + b["total"],
+                                       "detected": a["detected"] + b["detected"]}
+    results["rumc_radiology_all"] = merged
+    return results
+
 
 def recall(entry: dict) -> float:
     t = entry["total"]
@@ -166,7 +206,8 @@ def panel_category(ax, results: dict, subset: str, ci_data=None):
 # Panel B: overall recall by dataset (vertical bars)
 # ---------------------------------------------------------------------------
 
-def panel_dataset(ax, results: dict, ci_data=None):
+def panel_dataset(ax, results: dict, ci_data=None, pins=None):
+    pins = pins or {}
     available = [s for s in DATASET_ORDER if s in results]
     systems   = [s for s in SYSTEM_ORDER if s in results.get(available[0], {})]
 
@@ -182,8 +223,11 @@ def panel_dataset(ax, results: dict, ci_data=None):
         for subset in available:
             entry = results[subset].get(sys_name, {}).get("overall", {"total": 0, "detected": 0})
             v = recall(entry)
-            vals.append(v)
             ci_pair = (ci_data or {}).get(subset, {}).get("overall", {}).get(sys_name)
+            pin = pins.get((subset, sys_name))
+            if pin:
+                v, ci_pair = pin["recall"], pin["ci95"]
+            vals.append(v)
             if ci_pair and (v == v):
                 yerr_lo.append(max(v - ci_pair[0], 0))
                 yerr_hi.append(max(ci_pair[1] - v, 0))
@@ -237,6 +281,11 @@ def main():
         default=None,
         help="Bootstrap CI JSON saved by bootstrap_ci.py --save-ci (adds error bars)",
     )
+    parser.add_argument(
+        "--no-pin-jbz",
+        action="store_true",
+        help="Plot GHMSCHRFT on JBZ from the cases file instead of the published value",
+    )
     args = parser.parse_args()
 
     if not args.results.exists():
@@ -246,6 +295,7 @@ def main():
 
     with open(args.results, encoding="utf-8") as f:
         results = json.load(f)
+    results = merge_radiology(results)
 
     ci_data = None
     if args.ci and args.ci.exists():
@@ -261,7 +311,8 @@ def main():
     fig.subplots_adjust(wspace=0.38, bottom=0.18)
 
     panel_category(ax_cat, results, subset=CATEGORY_SUBSET, ci_data=ci_data)
-    panel_dataset(ax_ds, results, ci_data=ci_data)
+    panel_dataset(ax_ds, results, ci_data=ci_data,
+                  pins={} if args.no_pin_jbz else PUBLISHED_PINS)
 
     # Shared legend — placed above both panels
     handles, labels = ax_cat.get_legend_handles_labels()

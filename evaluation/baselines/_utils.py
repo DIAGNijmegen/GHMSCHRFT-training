@@ -13,16 +13,21 @@ from typing import Dict, List, Optional, Tuple
 
 # Paths to anon nlp-dataset.json files that contain original report texts.
 # Format: [{"meta": {"uid": "..."}, "text": "..."}, ...]
+import os
+
+# Root of the data folder. Set GHMSCHRFT_DATA_ROOT to your own location.
+_DATA_ROOT = Path(os.environ.get("GHMSCHRFT_DATA_ROOT", "<path/to/data>"))
+
 ANON_DIRS: Dict[str, Path] = {
-    "RUMC radiology":     None,
-    "RUMC radiology old": None,
-    "RUMC pathology":     None,
-    "ZGT":                None,
+    "RUMC radiology":     _DATA_ROOT / "preprocessed/rumc_radiology/anon/nlp-dataset.json",
+    "RUMC radiology old": _DATA_ROOT / "preprocessed/rumc_radiology_old/anon/nlp-dataset.json",
+    "RUMC pathology":     _DATA_ROOT / "preprocessed/rumc_pathology/anon/nlp-dataset.json",
+    "ZGT":                _DATA_ROOT / "preprocessed/zgt/anon/nlp-dataset.json",
 }
 
-# JBZ is a test-only set — no anon directory. Original texts come from docker_input.jsonl.
+# JBZ is a test-only set with no anon directory. Original texts come from docker_input.jsonl.
 # Format: {"uid": "jbz-N", "text": "..."}
-JBZ_DOCKER_INPUT = None
+JBZ_DOCKER_INPUT = _DATA_ROOT / "preprocessed/jbz/docker_input.jsonl"
 
 
 def load_uid_to_text(

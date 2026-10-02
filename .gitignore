@@ -12,9 +12,14 @@ evaluation/plots/output/
 
 # Model predictions and bootstrap results (large generated data files)
 evaluation/baselines/*/predictions.json
+evaluation/baselines/*/predictions.meta.json
+evaluation/baselines/*/predictions.partial.jsonl
 predictions/baseline_results.json
 predictions/bootstrap_ci.json
 predictions/bootstrap_cis.json
 
 # Generated Doccano export and measurement-loss annotation data
 evaluation/measurement_loss/
+
+# Backups written by revision/apply_revision_patches.py
+*.bak

@@ -1,0 +1,35 @@
+# Conda environment for run_deidentify.py.
+#
+# deidentify 0.7.3 (May 2022) needs spaCy 2.x, Flair < 0.11 and torch 1.x, so it
+# cannot share an environment with the rest of this repository. These pins were
+# resolved and tested on Python 3.9 on 2026-10-02: the package imports, the
+# tokenizer runs, and the CRF model annotates a synthetic sentence correctly.
+# Loading the large BiLSTM-CRF model needs more than 6 GB of RAM.
+#
+#   conda env create -f evaluation/baselines/deidentify/environment.yml
+#   conda activate deidentify
+#
+# torch from PyPI is CPU-only on Windows, which is enough for 1,320 reports.
+name: deidentify
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+      - deidentify==0.7.3
+      # deidentify imports DEDUCE 1.x internals; DEDUCE 2+ breaks the import
+      - deduce==1.0.8
+      - spacy==2.3.9
+      - thinc==7.4.6
+      - https://github.com/explosion/spacy-models/releases/download/nl_core_news_sm-2.3.0/nl_core_news_sm-2.3.0.tar.gz
+      - flair==0.10
+      - torch==1.13.1
+      - transformers==4.30.2
+      - huggingface-hub==0.16.4
+      - tokenizers==0.13.3
+      - sentencepiece==0.1.95
+      - gensim==4.4.0
+      - numpy==1.26.4
+      # flair 0.10 pulls in gdown, which still imports pkg_resources
+      - setuptools==69.5.1
